@@ -1,0 +1,7 @@
+FROM: client2
+TO: client1@example.com
+SUBJECT: hello world
+TIME-STAMP: Thu, Apr 25, 2024 12:44:45
+SEQUENCE-NUMBER: 1714034685819
+
+hello
