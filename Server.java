@@ -174,6 +174,7 @@ public class Server{
                     System.out.println("Sending 250 Ok");
                     String confirmation = "250 OK:" + timestamp;
                     //250 ok to sender
+                    
                     send_message(confirmation, senderAddress, senderPort, serverSocket);
                     serverSocket.receive(receivePacket);
                     String ackString = new String(receivePacket.getData(), 0, receivePacket.getLength());

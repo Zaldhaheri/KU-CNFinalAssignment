@@ -1,7 +1,0 @@
-FROM: client1@gmail.com
-TO: client2@gmail.com
-SUBJECT: hello
-TIME-STAMP: Thu, Apr 25, 2024 12:46:36
-SEQUENCE-NUMBER: 1714034796534
-
-world

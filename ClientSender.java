@@ -4,46 +4,41 @@ import java.net.*;
 import java.nio.file.Files;
 
 public class ClientSender{ //Client (Email writter)
+    public static int sequenceNum = 1;
     public static void main(String[] args) {
-        DatagramSocket clientSocket = null; //create an empty socket
+        final DatagramSocket[] clientSocketWrapper = new DatagramSocket[1]; //create an empty socket
         Scanner console = new Scanner(System.in); //for user input
-
-        int sequenceNum = 1;
+        int serverPort = 12121;
+        // int sequenceNum = 1;
 
         try { //error handler to catch io errors
             InetAddress IP = InetAddress.getLocalHost();
             String hostname = IP.getHostName();
             System.out.println("Mail Client Starting at host: "+ hostname); //prints the hostname (DESKTOP-XXXX)
-            
             InetAddress serverAddress = null;
-            while (true) { //loop for server hostname input
+            while (true) {
                 try {
                     System.out.print("Type name of Mail servers: ");
-                    String mailServer = console.nextLine(); //get user input for server hostname
-                    serverAddress = InetAddress.getByName(mailServer); //save mail server ip to server address
-                    break ; //mail server is valid, exit loop
-                } catch (UnknownHostException ex) { //catch invalid hostname in InetAddress
+                    String mailServer = console.nextLine();
+                    serverAddress = InetAddress.getByName(mailServer);
+                    break ; 
+                } catch (UnknownHostException ex) { 
                     System.out.println("Unknown host name");
                 }
             }
-            clientSocket = new DatagramSocket(); //create empty socket object
-            int serverPort = 12121;
-            System.out.println("Sending SYN...");
-            send_message("SYN-Sender" , serverAddress, serverPort, clientSocket);
+            clientSocketWrapper[0] = new DatagramSocket(); //create empty socket object
             byte[] receiveData = new byte[1024];
             DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
-            clientSocket.receive(receivePacket);
-            String ackMessage = new String(receivePacket.getData(), 0, receivePacket.getLength());
-            if (ackMessage.contains("ACK"))
-            {
-                System.out.println("ACK received");
-                System.out.println("Sending ACK ACK...");
-                send_message("ACK ACK", serverAddress, serverPort, clientSocket);
-            }
-            else
-            {
-                System.out.println("ACK Error");
-            }
+            handshake(clientSocketWrapper[0], serverAddress, serverPort);
+
+            Thread receiverThread = new Thread(() -> {
+                try{
+                    receiveEmail(clientSocketWrapper[0]);
+                } catch (IOException e) {
+                    System.out.println("Thread error" + e.getMessage());
+                }
+            });
+            receiverThread.start();
 
             while(true) //infinite loop until break
             {
@@ -96,84 +91,89 @@ public class ClientSender{ //Client (Email writter)
 
                 //String request = "TO:" + to + "FROM:" + from + "SUBJECT:" + subject + "SEQ:" + sequenceNum + "BODY:" + body + "HOST:" + hostname; //request message
 
-                send_message(request, serverAddress, serverPort, clientSocket); //calls send_message function (bottom)
+                send_message(request, serverAddress, serverPort, clientSocketWrapper[0]); //calls send_message function (bottom)
 
                 System.out.println("Mail Sent to Server, waiting...");
-                clientSocket.receive(receivePacket); //save received packet (ACK)
-                String ackString = new String(receivePacket.getData(), 0, receivePacket.getLength());
-                if (ackString.contains("ACK"))
-                {
-                    String tempStr[] = ackString.split("ACK:");
-                    sequenceNum = Integer.parseInt(tempStr[1]);
-                    System.out.println("ACK:" + sequenceNum + " received");
-                }
-                else 
-                {
-                    System.out.println("ACK error");
-                }
+                
+                // clientSocketWrapper[0].receive(receivePacket); //save received packet (ACK)
+                // String ackString = new String(receivePacket.getData(), 0, receivePacket.getLength());
+                // if (ackString.contains("ACK"))
+                // {
+                //     String tempStr[] = ackString.split("ACK:");
+                //     sequenceNum = Integer.parseInt(tempStr[1]);
+                //     System.out.println("ACK:" + sequenceNum + " received");
+                // }
 
-                clientSocket.receive(receivePacket);
+                //clientSocketWrapper[0].receive(receivePacket);
                 String confirmation = new String(receivePacket.getData(), 0, receivePacket.getLength()); //convert packet (bytes) to string
-                if (confirmation.contains("250 OK")) //packet received successfully
-                {
-                    String timestamp[] = confirmation.split("250 OK:"); //split the message and take whats after "250 OK:" (the timestamp)
-                    System.out.println("Email received successfully at " + timestamp[1]);
-                    System.out.println("Sending ACK");
-                    send_message("ACK", serverAddress, serverPort, clientSocket);
-                    String directoryPath = "./SenderMails/";
-                    String filename = subject + "_" + timestamp[1];
-                    //create sender directory
-                    String relativeFilePath = directoryPath + filename;
-                    File directory = new File(directoryPath);
-                    directory.mkdirs();
+                // if (confirmation.contains("250 OK")) //packet received successfully
+                // {
+                //     String timestamp[] = confirmation.split("250 OK:"); //split the message and take whats after "250 OK:" (the timestamp)
+                //     System.out.println("not Email received successfully at " + timestamp[1]);
+                //     System.out.println("Sending ACK");
+                //     send_message("ACK", serverAddress, serverPort, clientSocketWrapper[0]);
+                //     String directoryPath = "./SenderMails/";
+                //     String filename = subject + "_" + timestamp[1];
+                //     //create sender directory
+                //     String relativeFilePath = directoryPath + filename;
+                //     File directory = new File(directoryPath);
+                //     directory.mkdirs();
 
-                    File f = new File(relativeFilePath + ".txt");
-                    //print file
-                    PrintWriter fout = new PrintWriter(f);
-                    fout.println("FROM: " + from);
-                    fout.println("TO: " + to);
-                    fout.println("SUBJECT: " + subject);
-                    fout.println("TIME: " + timestamp[1]);
-                    fout.println(body);
-                    fout.close();
-                    //print attachment file
-                    if (!attachmentBase64.isEmpty()) {
-                        // Decode the Base64 attachment data
-                        String splitter[] = attachmentBase64.split(",");
-                        String attachmentDecode = splitter[0];
-                        String attachmentExtension = splitter[1];
-                        byte[] decodedBytes = Base64.getDecoder().decode(attachmentDecode);
+                //     File f = new File(relativeFilePath + ".txt");
+                //     //print file
+                //     PrintWriter fout = new PrintWriter(f);
+                //     fout.println("FROM: " + from);
+                //     fout.println("TO: " + to);
+                //     fout.println("SUBJECT: " + subject);
+                //     fout.println("TIME: " + timestamp[1]);
+                //     fout.println(body);
+                //     fout.close();
+                //     //print attachment file
+                //     if (!attachmentBase64.isEmpty()) {
+                //         // Decode the Base64 attachment data
+                //         String splitter[] = attachmentBase64.split(",");
+                //         String attachmentDecode = splitter[0];
+                //         String attachmentExtension = splitter[1];
+                //         byte[] decodedBytes = Base64.getDecoder().decode(attachmentDecode);
 
-                        File attachmentFile = new File(relativeFilePath + "_attach." + attachmentExtension);
-                        try (FileOutputStream fos = new FileOutputStream(attachmentFile)) {
-                            fos.write(decodedBytes);
-                            System.out.println("Attachment saved to " + directoryPath);
-                        } catch (IOException e) {
-                            System.out.println("Error saving attachment: " + e.getMessage());
-                        }
-                    }
-                    
-                }
-                else if (confirmation.contains("501 Error")) //packet failed
-                {
-                    System.out.println("501 Error");
-                    System.out.println("Header files are invalid"); //add option to quit or continue
-                    System.out.println("Sending ACK");
-                    send_message("ACK", serverAddress, serverPort, clientSocket);
-                }
-                else if (confirmation.contains("505 Error"))
-                {
-                    System.out.println("505 Error");
-                    System.out.println("Email does not exist");
-                    System.out.println("Sending ACK");
-                    send_message("ACK", serverAddress, serverPort, clientSocket);
-                }
-                else //unkown error
-                { 
-                    System.out.println("Unknown Error");
-                    System.out.println("Sending ACK");
-                    send_message("ACK", serverAddress, serverPort, clientSocket);
-                    break ; //quit loop
+                //         File attachmentFile = new File(relativeFilePath + "_attach." + attachmentExtension);
+                //         try (FileOutputStream fos = new FileOutputStream(attachmentFile)) {
+                //             fos.write(decodedBytes);
+                //             System.out.println("Attachment saved to " + directoryPath);
+                //         } catch (IOException e) {
+                //             System.out.println("Error saving attachment: " + e.getMessage());
+                //         }
+                //     }
+                // }
+                // else if (confirmation.contains("501 Error")) //packet failed
+                // {
+                //     System.out.println("501 Error");
+                //     System.out.println("Header files are invalid"); //add option to quit or continue
+                //     System.out.println("Sending ACK");
+                //     send_message("ACK", serverAddress, serverPort, clientSocketWrapper[0]);
+                // }
+                // else if (confirmation.contains("505 Error"))
+                // {
+                //     System.out.println("505 Error");
+                //     System.out.println("Email does not exist");
+                //     System.out.println("Sending ACK");
+                //     send_message("ACK", serverAddress, serverPort, clientSocketWrapper[0]);
+                // }
+                // else //unkown error
+                // { 
+                //     System.out.println("Unknown Error");
+                //     System.out.println("Sending ACK");
+                //     send_message("ACK", serverAddress, serverPort, clientSocketWrapper[0]);
+                //     break ; //quit loop
+                // }
+                try {
+                    // to sleep 10 seconds
+                    Thread.sleep(10000);
+                } catch (InterruptedException e) {
+                    // recommended because catching InterruptedException clears interrupt flag
+                    Thread.currentThread().interrupt();
+                    // you probably want to quit if the thread is interrupted
+                    return;
                 }
                 System.out.println("Do you want to quit? (quit/no): ");
                 boolean quitvalid = false;
@@ -200,14 +200,14 @@ public class ClientSender{ //Client (Email writter)
                 {
                     //send terminate, get ack, send ack ack
                     System.out.println("Sending terminate");
-                    send_message("Terminate", serverAddress, serverPort, clientSocket);
-                    clientSocket.receive(receivePacket);
+                    send_message("Terminate", serverAddress, serverPort, clientSocketWrapper[0]);
+                    clientSocketWrapper[0].receive(receivePacket);
                     String ackTerm = new String(receivePacket.getData(), 0, receivePacket.getLength());
                     if (ackTerm.contains("ACK"))
                     {
                         System.out.println("ACK received");
                         System.out.println("Sending ACK ACK");
-                        send_message("ACK ACK", serverAddress, serverPort, clientSocket);
+                        send_message("ACK ACK", serverAddress, serverPort, clientSocketWrapper[0]);
                         break ;
                     }
                     else
@@ -222,10 +222,52 @@ public class ClientSender{ //Client (Email writter)
         } catch (IOException e) { //catch IOException (Inputs, files error)
             e.printStackTrace(); //print where the error was
         } finally {
-            if (clientSocket != null && !clientSocket.isClosed()) {
-                clientSocket.close(); //close socket after code ends
+            if (clientSocketWrapper[0] != null && !clientSocketWrapper[0].isClosed()) {
+                //clientSocket.close(); //close socket after code ends
             }
             console.close();
+        }
+    }
+
+    private static void handshake(DatagramSocket currentSocket, InetAddress serverAddress, int portNumber) throws IOException
+    {
+        System.out.println("Connecting...");
+        send_message("SYN-Sender" , serverAddress, portNumber, currentSocket);
+        byte[] receiveData = new byte[1024];
+        DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+        currentSocket.receive(receivePacket);
+        String ackMessage = new String(receivePacket.getData(), 0, receivePacket.getLength());
+        if (ackMessage.contains("ACK"))
+        {
+            System.out.println("Connection established");
+            send_message("ACK ACK", serverAddress, portNumber, currentSocket);
+        }
+        else
+        {
+            System.out.println("Connection Failed");
+            System.exit(0);
+        }
+    }
+
+    private static void receiveEmail(DatagramSocket currentSocket) throws IOException
+    {
+        byte[] receiveData = new byte[1024];
+        DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+        while (true) {
+            System.out.println("Thread: Waiting to receive!!");
+            currentSocket.receive(receivePacket);
+            System.out.println("Thread: received!!");
+            String receivedString = new String(receivePacket.getData(), 0, receivePacket.getLength());
+            if (receivedString.contains("ACK"))
+            {
+                String tempStr[] = receivedString.split("ACK:");
+                sequenceNum = Integer.parseInt(tempStr[1]);
+                System.out.println("2ACK:" + sequenceNum + " received");
+            }
+            if (receivedString.contains("250 OK"))
+            {
+                System.out.println("250 ok received");
+            }
         }
     }
 
@@ -243,7 +285,8 @@ public class ClientSender{ //Client (Email writter)
         }
     }
 
-    private static String getFileExtension(File file) {
+    private static String getFileExtension(File file)
+    {
         String fileName = file.getName();
         int dotIndex = fileName.lastIndexOf('.');
         if(dotIndex > 0 && dotIndex < fileName.length() - 1) {
@@ -252,6 +295,7 @@ public class ClientSender{ //Client (Email writter)
         } else {
             // No extension found
             return "";
+        }
     }
-}
+
 }
