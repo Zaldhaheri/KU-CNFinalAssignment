@@ -3,9 +3,20 @@ import java.util.*;
 import java.net.*;
 import java.nio.file.Files;
 
-public class ClientSender{ //Client (Email writter)
+interface EmailEventListener {
+    void on250OKReceived(String response);
+    void onEmailError(String error);
+}
+
+public class ClientSender implements EmailEventListener{ //Client (Email writter)
     public static int sequenceNum = 1;
+    private static volatile EmailEventListener listener;
+    
+    public ClientSender() {
+        listener = this;
+    }
     public static void main(String[] args) {
+        new ClientSender();
         final DatagramSocket[] clientSocketWrapper = new DatagramSocket[1]; //create an empty socket
         Scanner console = new Scanner(System.in); //for user input
         int serverPort = 12121;
@@ -267,6 +278,15 @@ public class ClientSender{ //Client (Email writter)
             if (receivedString.contains("250 OK"))
             {
                 System.out.println("250 ok received");
+                listener.on250OKReceived(receivedString);
+            }
+            if (receivedString.contains("501 ERROR"))
+            {
+                System.out.println("501 ERROR");
+            }
+            if (receivedString.contains("505 ERROR"))
+            {
+                System.out.println("505 ERROR");
             }
         }
     }
@@ -297,5 +317,7 @@ public class ClientSender{ //Client (Email writter)
             return "";
         }
     }
+
+    public void on250OKReceived
 
 }
