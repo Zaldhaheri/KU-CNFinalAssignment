@@ -55,7 +55,7 @@ public class ClientSender{ //Client (Email writter)
             while(true) //infinite loop until break
             {
                 System.out.println("Creating New Email.."); //mail inputs
-                System.out.print("To: ");
+                System.out.print("To (separate multiple emails with ';'): ");
                 to = console.nextLine();
                 System.out.println("From: " + hostMail);
                 from = hostMail;
@@ -93,12 +93,12 @@ public class ClientSender{ //Client (Email writter)
                     }
                 }
 
-                String request = "TO:" + to + "FROM:" + from + "SUBJECT:" + subject + "SEQ:" + sequenceNum + "BODY:" + body + "ATTACHMENT:" + attachmentBase64 + "HOST:" + hostname;
+                String request = "TO:" + to + "FROM:" + from + "SUBJECT:" + subject + "SEQ:" + sequenceNum + "BODY:" + body + "ATTACHMENT:" + attachmentBase64 + "HOST:" + hostname + "(END)";
 
-                if (request.getBytes().length > 1024) {
-                    System.out.println("The total email size exceeds the 1024 bytes limit. Consider reducing the attachment size.");
-                    continue; // Skip sending this message
-                }
+                // if (request.getBytes().length > 1024) {
+                //     System.out.println("The total email size exceeds the 1024 bytes limit. Consider reducing the attachment size.");
+                //     continue; // Skip sending this message
+                // }
 
                 //String request = "TO:" + to + "FROM:" + from + "SUBJECT:" + subject + "SEQ:" + sequenceNum + "BODY:" + body + "HOST:" + hostname; //request message
 
@@ -262,7 +262,17 @@ public class ClientSender{ //Client (Email writter)
                 break ;
             }
             if (receivedString.contains("TO:"))
-            {   
+            {
+                String tempMessage;
+                while(!receivedString.contains("(END)"))
+                {
+                    System.out.println("Multiple packets detected!!!!1");
+                    currentSocket.receive(receivePacket);
+                    tempMessage = new String(receivePacket.getData(), 0, receivePacket.getLength());
+                    receivedString = receivedString + tempMessage;
+                }
+                String temp[] = receivedString.split("(END)");
+                receivedString = temp[0];
                 String a1[] = receivedString.split("TO:");
                 String a2[] = a1[1].split("FROM:");
                 String to = a2[0];
@@ -276,10 +286,11 @@ public class ClientSender{ //Client (Email writter)
                 String body = a6[0];
                 String a7[] = a6[1].split("HOST:");
                 String attachmentData = a7[0];
+                String a8[] = a7[1].split("TIME:");
+                String timestamp = a8[1];
 
                 System.out.println("Mail Received from " + from); //print the hostname of the address
                 String directoryPath = "./" + hostMail + "ReceivedMails/";
-                String timestamp = java.time.LocalDateTime.now().toString().replace(":", "-");
                 String filename = subject + "_" + timestamp;
                 String relativeFilePath = directoryPath + filename;
                 File directory = new File(directoryPath);
@@ -327,12 +338,19 @@ public class ClientSender{ //Client (Email writter)
     static void send_message(String message, InetAddress serverAddress, int portNumber, DatagramSocket currentSocket)
     {
         try{
-            byte[] sendData = message.getBytes(); //convert message to bytes
-            int messageBytes = message.getBytes().length; //byte length of request message
-            String byteSize = Integer.toString(messageBytes); //parsing int to string
-            System.out.println("Message is sending " + byteSize + " Bytes"); //print bytes length
-            DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, serverAddress, portNumber); //create a packet
-            currentSocket.send(sendPacket); //send packet(Bytes, Bytes length, address to send, port number)
+            final int MAX_SEGMENT_SIZE = 1024;
+            byte[] messageBytes = message.getBytes();
+            int messageLength = messageBytes.length;
+            int start = 0;
+        
+            while (start < messageLength) {
+                int end = Math.min(start + MAX_SEGMENT_SIZE, messageLength);
+                byte[] segment = Arrays.copyOfRange(messageBytes, start, end);
+                System.out.println("Message is sending " + segment.length + " Bytes"); //print bytes length
+                DatagramPacket sendPacket = new DatagramPacket(segment, segment.length, serverAddress, portNumber);
+                currentSocket.send(sendPacket);
+                start = end;
+            }
         } catch(IOException e) { //catch IOException
             e.printStackTrace();
         }
