@@ -191,10 +191,19 @@ public class ClientSender{ //Client (Email writter)
                 sequenceNum = Integer.parseInt(tempStr[1]);
                 System.out.println("ACK:" + sequenceNum + " received");
             }
-            if (receivedString.contains("250 OK"))
+            if (receivedString.contains("250 OK") || receivedString.contains("200 OK"))
             {
-                String timestamp[] = receivedString.split("250 OK:"); //split the message and take whats after "250 OK:" (the timestamp)
-                System.out.println("Email received successfully at " + timestamp[1]);
+                String timestamp[];
+                if (receivedString.contains("250 OK"))
+                {
+                    timestamp = receivedString.split("250 OK:"); //split the message and take whats after "250 OK:" (the timestamp)
+                    System.out.println("250 OK: Email received successfully at " + timestamp[1]);
+                }
+                else
+                {
+                    timestamp = receivedString.split("200 OK:"); //split the message and take whats after "250 OK:" (the timestamp)
+                    System.out.println("200 OK: Email received successfully at " + timestamp[1]);
+                }
                 System.out.println("Sending ACK");
                 send_message("ACK", serverAddress, portNumber, currentSocket);
                 String directoryPath = "./" + hostMail + "SenderMails/";

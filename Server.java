@@ -1,9 +1,15 @@
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.net.*;
 
 public class Server{
     private static List<Client> connectedClients = new ArrayList<>();//dynamic array simple methods
+    private static Map<String, List<Email>> pendingEmails = new ConcurrentHashMap<>();
+
+    private static int senderNum = 1;
+    private static int receiverNum = 1;
+    private static byte[] receiveData = new byte[1024];
 
     public static void main(String[] args) throws FileNotFoundException{
         DatagramSocket serverSocket = null;
@@ -11,17 +17,13 @@ public class Server{
         try {
             //local variables
             serverSocket = new DatagramSocket(12121);
-            byte[] receiveData = new byte[1024];
+            
             String[] vaildTOEmails = {"zayed@gmail.com", "zaid@gmail.com", "zaza@gmail.com"};
-            String receiverMail = "";
 
             InetAddress clientAddress = null;
             int clientPort = 0;
+            String clientEmail = "";
 
-            int senderNum = 1;
-            int receiverNum = 1;
-
-            int tempIndex = 0;
             int toIndex = -1;
             int fromIndex = -1;
 
@@ -30,6 +32,7 @@ public class Server{
             System.out.println("Server is listening on port 12121...");
 
             while (true) {
+                printAllEmails();
                 DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length); 
 
                 serverSocket.receive(receivePacket); 
@@ -41,7 +44,8 @@ public class Server{
                     System.out.println("SYN received");
                     System.out.println("Sending ACK");
                     temp = message.split("SYN:");
-                    System.out.println("Client Email: " + temp[1]);
+                    System.out.println("Client Email: " + temp[1] + ".");
+                    clientEmail = temp[1].trim();
                     clientAddress = receivePacket.getAddress();
                     clientPort = receivePacket.getPort();
                     Client ctemp = new Client(temp[1], clientAddress, clientPort);
@@ -53,6 +57,12 @@ public class Server{
                     {
                         System.out.println("ACK ACK received");
                     }
+                    List<Email> emailsToDeliver = pendingEmails.getOrDefault(clientEmail, new ArrayList<>());
+                    for (Email email : emailsToDeliver) {
+                        // Reconstruct the message format or directly use the stored email objects
+                        sendEmailToClient(email, clientAddress, clientPort, serverSocket);
+                    }
+                    pendingEmails.remove(clientEmail);
                 }
 
                 if (message.contains("TERMINATE:"))
@@ -60,6 +70,8 @@ public class Server{
                     temp = message.split("TERMINATE:");
                     System.out.println("Terminate received from: " + temp[1]);
                     System.out.println("Sending ACK");
+                    clientAddress = receivePacket.getAddress();
+                    clientPort = receivePacket.getPort();
                     send_message("TERMINATE:ACK", clientAddress, clientPort, serverSocket);
                     serverSocket.receive(receivePacket);
                     String termString = new String(receivePacket.getData(), 0, receivePacket.getLength());
@@ -87,23 +99,7 @@ public class Server{
                     String a7[] = a6[1].split("HOST:");
                     String attachmentData = a7[0];
                     String hostname = a7[1];
-
-                    fromIndex = getClientIndex(from);
-                    toIndex = getClientIndex(to);
-
-                    System.out.println("(Sender) Sending ACK:" + (senderNum + receivePacket.getLength()));
-                    send_message("SENDERACK:" + (senderNum + receivePacket.getLength()), 
-                        connectedClients.get(fromIndex).getAddress(), connectedClients.get(fromIndex).getPort(), serverSocket);
-
-                    System.out.println("Mail Received from " + hostname); 
                     String timestamp = java.time.LocalDateTime.now().toString().replace(":", "-");
-
-                    System.out.println("FROM: " + from);
-                    System.out.println("TO: " + to);
-                    System.out.println("SUBJECT: " + subject);
-                    System.out.println("TIME: " + timestamp);
-                    System.out.println("SEQ: " + senderNum);
-                    System.out.println(body);
 
                     boolean found = false;
                     for (String s: vaildTOEmails)
@@ -114,43 +110,139 @@ public class Server{
                             break ;
                         }
                     }
+
+                    if (!to.contains("@") || !from.contains("@")){
+                        System.out.println("The Header fields are not valid.");
+                        System.out.println("Sending 501 Error");
+    
+                        String confirmation = "501 ERROR";
+                        clientAddress = receivePacket.getAddress();
+                        clientPort = receivePacket.getPort();
+                        send_message(confirmation, clientAddress, clientPort, serverSocket);
+                        serverSocket.receive(receivePacket);
+                        
+                        String ackString = new String(receivePacket.getData(), 0, receivePacket.getLength());
+                        if (ackString.contains("ACK"))
+                        {
+                            System.out.println("ACK received");
+                        }
+                        else
+                        {
+                            System.out.println("ACK error");
+                        }
+                        continue ;
+                    }//505 error
+                    else if (!found)
+                    {
+                        System.out.println("Email address does not exist");
+                        System.out.println("Sending 505 Error");
+    
+                        String confirmation = "505 ERROR";
+                        clientAddress = receivePacket.getAddress();
+                        clientPort = receivePacket.getPort();
+                        send_message(confirmation, clientAddress, clientPort, serverSocket);
+                        String ackString = new String(receivePacket.getData(), 0, receivePacket.getLength());
+                        if (ackString.contains("ACK"))
+                        {
+                            System.out.println("ACK received");
+                        }
+                        else
+                        {
+                            System.out.println("ACK error");
+                        }
+                        continue ;
+                    }
+
+                    fromIndex = getClientIndex(from);
+                    toIndex = getClientIndex(to);
+
+                    System.out.println("(Sender) Sending ACK:" + (senderNum + receivePacket.getLength()));
+                    send_message("SENDERACK:" + (senderNum + receivePacket.getLength()), 
+                        connectedClients.get(fromIndex).getAddress(), connectedClients.get(fromIndex).getPort(), serverSocket);
+
+                    System.out.println("Mail Received from " + hostname); 
+                    System.out.println("FROM: " + from);
+                    System.out.println("TO: " + to);
+                    System.out.println("SUBJECT: " + subject);
+                    System.out.println("TIME: " + timestamp);
+                    System.out.println("SEQ: " + senderNum);
+                    System.out.println(body);
                     
-                    receiverMail = connectedClients.get(toIndex).getMail();
+                    
                     String directoryPath = "./" + to + "ServerMails/";
                     String filename = subject + "_" + timestamp;
                     String relativeFilePath = directoryPath + filename;
                     //create directory of the client if valid
-                    if (found || to.equalsIgnoreCase(receiverMail))
+                    if (found)
                     {
                         File directory = new File(directoryPath);
                         directory.mkdirs();
                     }
+
+                    if (toIndex == -1)
+                    {
+                        System.out.println(to + " is not connected. Email will be stored for later delivery.");
+                        pendingEmails.putIfAbsent(to, new ArrayList<>());
+                        pendingEmails.get(to).add(new Email(to, from, subject, body, attachmentData, timestamp));
+                        System.out.println("Sending 200 OK");
+                        send_message("200 OK:" + timestamp, 
+                            connectedClients.get(fromIndex).getAddress(), connectedClients.get(fromIndex).getPort(), serverSocket);
+                        serverSocket.receive(receivePacket);
+                        String ackString = new String(receivePacket.getData(), 0, receivePacket.getLength());
+                        if (ackString.contains("ACK"))
+                        {
+                            System.out.println("ACK:" + (senderNum + receivePacket.getLength()) + " received");
+                        }
+                        File f = new File(relativeFilePath + ".txt");
+    
+                        PrintWriter fout = new PrintWriter(f);
+                        fout.println("FROM: " + from);
+                        fout.println("TO: " + to);
+                        fout.println("SUBJECT: " + subject);
+                        fout.println("TIME: " + timestamp);
+                        fout.println(body);
+                        fout.close();
+                        //add attachment to that directory
+                        if (!attachmentData.isEmpty()) {
+                            String splitter[] = attachmentData.split(",");
+                            String attachmentDecode = splitter[0];
+                            String attachmentExtension = splitter[1];
+                            byte[] decodedBytes = Base64.getDecoder().decode(attachmentDecode);
+    
+                            File attachmentFile = new File(relativeFilePath + "_attach." + attachmentExtension);
+                            try (FileOutputStream fos = new FileOutputStream(attachmentFile)) {
+                                fos.write(decodedBytes);
+                                System.out.println("Attachment saved to " + directoryPath);
+                            } catch (IOException e) {
+                                System.out.println("Error saving attachment: " + e.getMessage());
+                            }
+                        }
+                        printPendingEmails();
+                        continue ;
+                    }
     
                     //250 ok
-                    if (to.contains("@") && from.contains("@") && (found || to.equalsIgnoreCase(receiverMail)))
+                    if (to.contains("@") && from.contains("@") && found )
                     {
                         System.out.println("The Header fields are verified.");
                         System.out.println("Sending mail to client receiver: " + connectedClients.get(toIndex).getMail() + " index: " + toIndex);
                         //send mail to receiver if same "to" mail
-                        if (to.equalsIgnoreCase(receiverMail))
+                        String receiverMessage = "TO:" + to + "FROM:" + from + "SUBJECT:" + subject + "SEQ:" + receiverNum + "BODY:" + body + "ATTACHMENT:" + attachmentData + "HOST:" + hostname;
+                        
+                        send_message(receiverMessage, connectedClients.get(toIndex).getAddress(), 
+                            connectedClients.get(toIndex).getPort(), serverSocket);
+                        System.out.println("mail sent to " + connectedClients.get(toIndex).getAddress() + " at: " + connectedClients.get(toIndex).getPort());
+                        serverSocket.receive(receivePacket);
+                        String ackString = new String(receivePacket.getData(), 0, receivePacket.getLength());
+                        if (ackString.contains("ACK"))
                         {
-
-                            String receiverMessage = "TO:" + to + "FROM:" + from + "SUBJECT:" + subject + "SEQ:" + receiverNum + "BODY:" + body + "ATTACHMENT:" + attachmentData + "HOST:" + hostname;
-                            
-                            send_message(receiverMessage, connectedClients.get(toIndex).getAddress(), 
-                                connectedClients.get(toIndex).getPort(), serverSocket);
-                            System.out.println("mail sent to " + connectedClients.get(toIndex).getAddress() + " at: " + connectedClients.get(toIndex).getPort());
-                            serverSocket.receive(receivePacket);
-                            String ackString = new String(receivePacket.getData(), 0, receivePacket.getLength());
-                            if (ackString.contains("ACK"))
-                            {
-                                String tempStr[] = ackString.split("ACK:");
-                                receiverNum = Integer.parseInt(tempStr[1]);
-                                System.out.println("(Receiver) ACK:" + receiverNum + " received");
-                            }
-                            else
-                                System.out.println("ACK error");
+                            String tempStr[] = ackString.split("ACK:");
+                            receiverNum = Integer.parseInt(tempStr[1]);
+                            System.out.println("(Receiver) ACK:" + receiverNum + " received");
                         }
+                        else
+                            System.out.println("ACK error");
+                        
                         
                         System.out.println("Sending 250 Ok");
                         String confirmation = "250 OK:" + timestamp;
@@ -158,7 +250,7 @@ public class Server{
                         
                         send_message(confirmation, connectedClients.get(fromIndex).getAddress(), connectedClients.get(fromIndex).getPort(), serverSocket);
                         serverSocket.receive(receivePacket);
-                        String ackString = new String(receivePacket.getData(), 0, receivePacket.getLength());
+                        ackString = new String(receivePacket.getData(), 0, receivePacket.getLength());
                         if (ackString.contains("ACK"))
                         {
                             System.out.println("ACK received");
@@ -192,49 +284,12 @@ public class Server{
                                 System.out.println("Error saving attachment: " + e.getMessage());
                             }
                         }
-                        System.out.println("mail sent to client at " + hostname + ":" + clientAddress);
+                        System.out.println("mail sent to client at " + connectedClients.get(toIndex).getMail());
                     }//501 error
-                    else if (!to.contains("@") || !from.contains("@")){
-                        System.out.println("The Header fields are not valid.");
-                        System.out.println("Sending 501 Error");
-    
-                        String confirmation = "501 Error";
-    
-                        send_message(confirmation, connectedClients.get(fromIndex).getAddress(), connectedClients.get(fromIndex).getPort(), serverSocket);
-                        serverSocket.receive(receivePacket);
-                        String ackString = new String(receivePacket.getData(), 0, receivePacket.getLength());
-                        if (ackString.contains("ACK"))
-                        {
-                            System.out.println("ACK received");
-                        }
-                        else
-                        {
-                            System.out.println("ACK error");
-                        }
-                    }//505 error
-                    else if (!to.equals(receiverMail) || !found)
-                    {
-                        System.out.println("Email address does not exist");
-                        System.out.println("Sending 505 Error");
-    
-                        String confirmation = "505 Error";
-    
-                        send_message(confirmation, connectedClients.get(fromIndex).getAddress(), connectedClients.get(fromIndex).getPort(), serverSocket);
-                        serverSocket.receive(receivePacket);
-                        String ackString = new String(receivePacket.getData(), 0, receivePacket.getLength());
-                        if (ackString.contains("ACK"))
-                        {
-                            System.out.println("ACK received");
-                        }
-                        else
-                        {
-                            System.out.println("ACK error");
-                        }
-                    }
+                    
                     toIndex = -1;
                     fromIndex = -1;
                 }
-                printAllEmails();
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -286,6 +341,46 @@ public class Server{
     private static boolean removeClientByEmail(String email) {
         return connectedClients.removeIf(client -> client.getMail().equals(email));
     }
+
+    static void sendEmailToClient(Email email, InetAddress serverAddress, int portNumber, DatagramSocket clientSocket) throws IOException{
+        String receiverMessage = "TO:" + email.getTO() + "FROM:" + email.getFROM() + "SUBJECT:" + email.getSubject() + "SEQ:" + receiverNum + "BODY:" + email.getBody() + "ATTACHMENT:" + email.getAttachmentData() + "HOST:" + email.getTO();
+        
+        send_message(receiverMessage, serverAddress, portNumber, clientSocket);
+        System.out.println("mail sent to " + serverAddress + " at: " + portNumber);
+        DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+        clientSocket.receive(receivePacket);
+        String ackString = new String(receivePacket.getData(), 0, receivePacket.getLength());
+        if (ackString.contains("ACK"))
+        {
+            String tempStr[] = ackString.split("ACK:");
+            receiverNum = Integer.parseInt(tempStr[1]);
+            System.out.println("(Receiver) ACK:" + receiverNum + " received");
+        }
+        else
+            System.out.println("ACK error");
+    }
+
+    public static void printPendingEmails() {
+        if (pendingEmails.isEmpty()) {
+            System.out.println("No pending emails.");
+        } else {
+            System.out.println("Pending emails:");
+            for (Map.Entry<String, List<Email>> entry : pendingEmails.entrySet()) {
+                String recipient = entry.getKey();
+                List<Email> emails = entry.getValue();
+                System.out.println("Recipient: " + recipient);
+                for (Email email : emails) {
+                    System.out.println("\tFrom: " + email.getFROM());
+                    System.out.println("\tTo: " + email.getTO());
+                    System.out.println("\tSubject: " + email.getSubject());
+                    System.out.println("\tBody: " + email.getBody());
+                    System.out.println("\tAttachment Data: " + email.getAttachmentData());
+                    System.out.println("\tTimestamp: " + email.getTimestamp());
+                    System.out.println("\t---");
+                }
+            }
+        }
+    }
 }
 
 class Client
@@ -312,5 +407,30 @@ class Client
     public int getPort() {
         return port;
     }
+}
 
+
+class Email {
+    String TO;
+    String FROM;
+    String subject;
+    String body;
+    String attachmentData; // Simplified: actual implementation might need more
+    String timestamp;
+
+    public Email(String TO, String FROM, String subject, String body, String attachmentData, String timestamp)
+    {
+        this.TO = TO;
+        this.FROM = FROM;
+        this.subject = subject;
+        this.body = body;
+        this.attachmentData = attachmentData;
+        this.timestamp = timestamp;
+    }
+    public String getTO() {return TO;}
+    public String getFROM() {return FROM;}
+    public String getSubject() {return subject;}
+    public String getBody() {return body;}
+    public String getAttachmentData() {return attachmentData;}
+    public String getTimestamp() {return timestamp;}
 }
