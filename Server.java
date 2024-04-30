@@ -4,7 +4,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.net.*;
 
 public class Server{
-    private static List<Client> connectedClients = new ArrayList<>();//dynamic array simple methods
+    //global variables
+    private static List<Client> connectedClients = new ArrayList<>();
     private static Map<String, List<Email>> pendingEmails = new ConcurrentHashMap<>();
 
     private static int senderNum = 1;
@@ -32,13 +33,14 @@ public class Server{
             System.out.println("Server is listening on port 12121...");
 
             while (true) {
-                printAllEmails();
+                printAllEmails(); //print all connected clients
                 DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length); 
 
                 serverSocket.receive(receivePacket); 
                 String message = new String(receivePacket.getData(), 0, receivePacket.getLength());
                 String temp[];
 
+                //3way handshake
                 if (message.contains("SYN"))
                 {
                     System.out.println("SYN received");
@@ -65,6 +67,7 @@ public class Server{
                     pendingEmails.remove(clientEmail);
                 }
 
+                //termination sequence
                 if (message.contains("TERMINATE:"))
                 {
                     temp = message.split("TERMINATE:");
@@ -82,12 +85,13 @@ public class Server{
                     }
                 }
 
+                //email handling
                 if (message.contains("TO:"))
                 {
                     String tempMessage;
+                    //handle multiple packets
                     while(!message.contains("(END)"))
                     {
-                        System.out.println("Multiple packets detected!!!!1");
                         serverSocket.receive(receivePacket);
                         tempMessage = new String(receivePacket.getData(), 0, receivePacket.getLength());
                         message = message + tempMessage;
@@ -95,6 +99,7 @@ public class Server{
                     temp = message.split("(END)");
                     message = temp[0];
 
+                    //split email into variables
                     System.out.println("Email received");
                     String a1[] = message.split("TO:");
                     String a2[] = a1[1].split("FROM:");
@@ -114,6 +119,7 @@ public class Server{
                     String[] allRecipients = to.split(";");
                     boolean found = false;
 
+                    //handle multiple TO: clients
                     if (to.contains(";"))
                     {
                         boolean OK250 = false, OK505 = false, OK501 = false; 
@@ -254,6 +260,7 @@ public class Server{
                         }
                         continue ;
                     }
+                    //check validity of emails
                     for (String s: vaildTOEmails)
                     {
                         if (s.equalsIgnoreCase(to))
@@ -263,6 +270,7 @@ public class Server{
                         }
                     }
 
+                    //501 error
                     if (!to.contains("@") || !from.contains("@")){
                         System.out.println("The Header fields are not valid.");
                         System.out.println("Sending 501 Error");
@@ -331,6 +339,7 @@ public class Server{
                         directory.mkdirs();
                     }
 
+                    //valid email but not connected
                     if (toIndex == -1)
                     {
                         System.out.println(to + " is not connected. Email will be stored for later delivery.");
@@ -438,7 +447,7 @@ public class Server{
                             }
                         }
                         System.out.println("mail sent to client at " + connectedClients.get(toIndex).getMail());
-                    }//501 error
+                    }
                     
                     toIndex = -1;
                     fromIndex = -1;
@@ -452,7 +461,7 @@ public class Server{
             }
         }
     }
-
+    //send message with multiple packet handling
     static void send_message(String message, InetAddress serverAddress, int portNumber, DatagramSocket clientSocket)
     {
         try{
@@ -474,6 +483,7 @@ public class Server{
         }
     }
 
+    //get clientIndex from the list
     static int getClientIndex(String clientMail)
     {
         for (int i = 0; i < connectedClients.size(); i++) {
@@ -486,6 +496,7 @@ public class Server{
         return -1;
     }
 
+    //prints all emails addresses of connected clients
     public static void printAllEmails() {
         if (connectedClients.isEmpty()) {
             System.out.println("No clients are currently connected.");
@@ -498,10 +509,12 @@ public class Server{
         }
     }
 
+    //deletes info of the client from the list (after termination)
     private static boolean removeClientByEmail(String email) {
         return connectedClients.removeIf(client -> client.getMail().equals(email));
     }
 
+    //send email to client
     static void sendEmailToClient(Email email, InetAddress serverAddress, int portNumber, DatagramSocket clientSocket) throws IOException{
         String receiverMessage = "TO:" + email.getTO() + "FROM:" + email.getFROM() + "SUBJECT:" + email.getSubject() + "SEQ:" + receiverNum + "BODY:" + email.getBody() 
             + "ATTACHMENT:" + email.getAttachmentData() + "HOST:" + email.getTO() + "TIME:" + email.getTimestamp() + "(END)";
@@ -521,6 +534,7 @@ public class Server{
             System.out.println("ACK error");
     }
 
+    //print emails of non connected valid clients 
     public static void printPendingEmails() {
         if (pendingEmails.isEmpty()) {
             System.out.println("No pending emails.");
@@ -544,6 +558,7 @@ public class Server{
     }
 }
 
+//holds client connection info
 class Client
 {
     private String mail;
@@ -557,26 +572,17 @@ class Client
         this.port = port;
     }
 
-    public String getMail() {
-        return mail;
-    }
-
-    public InetAddress getAddress() {
-        return address;
-    }
-
-    public int getPort() {
-        return port;
-    }
+    public String getMail() {return mail;}
+    public InetAddress getAddress() {return address;}
+    public int getPort() {return port;}
 }
-
-
+//holds email info
 class Email {
     String TO;
     String FROM;
     String subject;
     String body;
-    String attachmentData; // Simplified: actual implementation might need more
+    String attachmentData; 
     String timestamp;
 
     public Email(String TO, String FROM, String subject, String body, String attachmentData, String timestamp)

@@ -3,22 +3,23 @@ import java.util.*;
 import java.net.*;
 import java.nio.file.Files;
 
-public class ClientSender{ //Client (Email writter)
+public class ClientSender{
     public static int sequenceNum = 1;
     public static String hostMail, to, from, subject, body, attachFile, attachmentBase64 = "";
 
     public static void main(String[] args) {
-        final DatagramSocket[] clientSocketWrapper = new DatagramSocket[1]; //create an empty socket
+        //global variables
+        final DatagramSocket[] clientSocketWrapper = new DatagramSocket[1];
         final InetAddress[] serverAddress = new InetAddress[1];
-        Scanner console = new Scanner(System.in); //for user input
+        Scanner console = new Scanner(System.in);
         int serverPort = 12121;
-        // int sequenceNum = 1;
-
-        try { //error handler to catch io errors
+        
+        try {
             InetAddress IP = InetAddress.getLocalHost();
             String hostname = IP.getHostName();
             System.out.println("Mail Client Starting at host: "+ hostname); //prints the hostname (DESKTOP-XXXX)
             hostMail = "";
+            //enter email (valid input only)
             while(true)
             {
                 System.out.print("Enter Your Email: ");
@@ -30,6 +31,7 @@ public class ClientSender{ //Client (Email writter)
                 System.out.println("Invalid Email");
             }
             serverAddress[0] = null;
+            //enter mail server (valid input only)
             while (true) {
                 try {
                     System.out.print("Type name of Mail servers: ");
@@ -40,9 +42,11 @@ public class ClientSender{ //Client (Email writter)
                     System.out.println("Unknown host name");
                 }
             }
-            clientSocketWrapper[0] = new DatagramSocket(); //create empty socket object
+            //perform handshake
+            clientSocketWrapper[0] = new DatagramSocket();
             handshake(clientSocketWrapper[0], serverAddress[0], serverPort);
 
+            //create a thread to receive packets
             Thread receiverThread = new Thread(() -> {
                 try{
                     receiveEmail(serverAddress[0], serverPort, clientSocketWrapper[0]);
@@ -52,7 +56,8 @@ public class ClientSender{ //Client (Email writter)
             });
             receiverThread.start();
 
-            while(true) //infinite loop until break
+            //create email process
+            while(true)
             {
                 System.out.println("Creating New Email.."); //mail inputs
                 System.out.print("To (separate multiple emails with ';'): ");
@@ -92,26 +97,17 @@ public class ClientSender{ //Client (Email writter)
                         continue ;
                     }
                 }
-
                 String request = "TO:" + to + "FROM:" + from + "SUBJECT:" + subject + "SEQ:" + sequenceNum + "BODY:" + body + "ATTACHMENT:" + attachmentBase64 + "HOST:" + hostname + "(END)";
-
-                // if (request.getBytes().length > 1024) {
-                //     System.out.println("The total email size exceeds the 1024 bytes limit. Consider reducing the attachment size.");
-                //     continue; // Skip sending this message
-                // }
-
-                //String request = "TO:" + to + "FROM:" + from + "SUBJECT:" + subject + "SEQ:" + sequenceNum + "BODY:" + body + "HOST:" + hostname; //request message
-
                 send_message(request, serverAddress[0], serverPort, clientSocketWrapper[0]); //calls send_message function (bottom)
-
-                System.out.println("Mail Sent to Server, waiting...");
-                
+                System.out.println("Mail Sent to Server");
+                //sleep program before asking to quit (so all processes by the thread are done)
                 try {
                     Thread.sleep(5000);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return;
                 }
+                //quitting sequence
                 System.out.println("Do you want to quit? (quit/no): ");
                 boolean quitvalid = false;
                 while(true)
@@ -138,7 +134,7 @@ public class ClientSender{ //Client (Email writter)
                     System.out.println("Sending terminate");
                     send_message("TERMINATE:" + hostMail, serverAddress[0], serverPort, clientSocketWrapper[0]);
                     try {
-                        Thread.sleep(5000);
+                        Thread.sleep(1000);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         return;
@@ -158,6 +154,7 @@ public class ClientSender{ //Client (Email writter)
         }
     }
 
+    //performs the 3way handshake
     private static void handshake(DatagramSocket currentSocket, InetAddress serverAddress, int portNumber) throws IOException
     {
         System.out.println("Connecting...");
@@ -178,6 +175,7 @@ public class ClientSender{ //Client (Email writter)
         }
     }
 
+    //thread that handles received packets
     private static void receiveEmail(InetAddress serverAddress, int portNumber, DatagramSocket currentSocket) throws IOException
     {
         byte[] receiveData = new byte[1024];
@@ -185,12 +183,14 @@ public class ClientSender{ //Client (Email writter)
         while (true) {
             currentSocket.receive(receivePacket);
             String receivedString = new String(receivePacket.getData(), 0, receivePacket.getLength());
-            if (receivedString.contains("SENDER:ACK"))
+            //ack handles sequence numbers
+            if (receivedString.contains("SENDERACK:"))
             {
                 String tempStr[] = receivedString.split("ACK:");
                 sequenceNum = Integer.parseInt(tempStr[1]);
                 System.out.println("ACK:" + sequenceNum + " received");
             }
+            //handles 250 OK and 200 OK(pending emails)
             if (receivedString.contains("250 OK") || receivedString.contains("200 OK"))
             {
                 String timestamp[];
@@ -238,6 +238,7 @@ public class ClientSender{ //Client (Email writter)
                 }
                 emptyEmailInfo();
             }
+            //501 ERROR packets
             if (receivedString.contains("501 ERROR"))
             {
                 System.out.println("501 Error");
@@ -246,6 +247,7 @@ public class ClientSender{ //Client (Email writter)
                 send_message("ACK", serverAddress, portNumber, currentSocket);
                 emptyEmailInfo();
             }
+            //505 ERROR packets
             if (receivedString.contains("505 ERROR"))
             {
                 System.out.println("505 Error");
@@ -254,6 +256,7 @@ public class ClientSender{ //Client (Email writter)
                 send_message("ACK", serverAddress, portNumber, currentSocket);
                 emptyEmailInfo();
             }
+            //handles termination and exits the thread
             if (receivedString.contains("TERMINATE:ACK"))
             {
                 System.out.println("ACK received");
@@ -261,12 +264,13 @@ public class ClientSender{ //Client (Email writter)
                 send_message("ACK ACK", serverAddress, portNumber, currentSocket);
                 break ;
             }
+            //handles received emails
             if (receivedString.contains("TO:"))
             {
                 String tempMessage;
+                //handles multiple packets
                 while(!receivedString.contains("(END)"))
                 {
-                    System.out.println("Multiple packets detected!!!!1");
                     currentSocket.receive(receivePacket);
                     tempMessage = new String(receivePacket.getData(), 0, receivePacket.getLength());
                     receivedString = receivedString + tempMessage;
@@ -335,6 +339,7 @@ public class ClientSender{ //Client (Email writter)
         }
     }
 
+    //sends message with multiple packet handling
     static void send_message(String message, InetAddress serverAddress, int portNumber, DatagramSocket currentSocket)
     {
         try{
@@ -356,6 +361,7 @@ public class ClientSender{ //Client (Email writter)
         }
     }
 
+    //gets the extension (.pdf,.txt,etc.) of a file
     private static String getFileExtension(File file)
     {
         String fileName = file.getName();
@@ -369,6 +375,7 @@ public class ClientSender{ //Client (Email writter)
         }
     }
 
+    //resets the global email info
     private static void emptyEmailInfo()
     {
         to = "";
